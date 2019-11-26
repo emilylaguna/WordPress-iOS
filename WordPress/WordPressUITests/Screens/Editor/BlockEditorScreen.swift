@@ -142,6 +142,12 @@ class BlockEditorScreen: BaseScreen {
         }
     }
 
+    func dismissBlockEditorEnabledDialog() {
+        if FancyAlertComponent.isLoaded() {
+            FancyAlertComponent().acceptAlert()
+        }
+    }
+
     static func isLoaded() -> Bool {
         return XCUIApplication().navigationBars["Gutenberg Editor Navigation Bar"].buttons["Close"].exists
     }

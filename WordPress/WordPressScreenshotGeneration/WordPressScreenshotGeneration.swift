@@ -19,12 +19,12 @@ class WordPressScreenshotGeneration: XCTestCase {
         setupSnapshot(app)
 
         if isIpad {
-            XCUIDevice().orientation = UIDeviceOrientation.landscapeLeft
+            XCUIDevice.shared.orientation = UIDeviceOrientation.landscapeLeft
         } else {
-            XCUIDevice().orientation = UIDeviceOrientation.portrait
+            XCUIDevice.shared.orientation = UIDeviceOrientation.portrait
         }
 
-        login()
+        LoginFlow.login(siteUrl: "WordPress.com", username: ScreenshotCredentials.username, password: ScreenshotCredentials.password)
     }
 
     override func tearDown() {
@@ -34,135 +34,57 @@ class WordPressScreenshotGeneration: XCTestCase {
         super.tearDown()
     }
 
-    func login() {
-        let app = XCUIApplication()
-
-        let loginButton = app.buttons["Prologue Log In Button"]
-
-        // Logout first if needed
-        if !loginButton.waitForExistence(timeout: 3.0) {
-            logout()
-        }
-
-        loginButton.tap()
-        app.buttons["Self Hosted Login Button"].tap()
-
-        // We have to login by site address, due to security issues with the
-        // shared testing account which prevent us from signing in by email address.
-        let selfHostedUsernameField = app.textFields["usernameField"]
-        waitForElementToExist(element: selfHostedUsernameField)
-        selfHostedUsernameField.tap()
-        selfHostedUsernameField.typeText("WordPress.com")
-        app.buttons["Site Address Next Button"].tap()
-
-        let usernameField = app.textFields["usernameField"]
-        let passwordField = app.secureTextFields["passwordField"]
-
-        waitForElementToExist(element: passwordField)
-        usernameField.tap()
-        usernameField.typeText(ScreenshotCredentials.username)
-        passwordField.tap()
-        passwordField.typeText(ScreenshotCredentials.password)
-
-        app.buttons["submitButton"].tap()
-
-        let continueButton = app.buttons["Continue"]
-        waitForElementToExist(element: continueButton)
-        continueButton.tap()
-
-        // Wait for the notification primer, and dismiss if present
-        let cancelAlertButton = app.buttons["cancelAlertButton"]
-        if cancelAlertButton.waitForExistence(timeout: 3.0) {
-            cancelAlertButton.tap()
-        }
-    }
-
-    func logout() {
-        let app = XCUIApplication()
-        app.tabBars["Main Navigation"].buttons["meTabButton"].tap()
-
-        let loginButton = app.buttons["Prologue Log In Button"]
-        let logoutButton = app.tables.element(boundBy: 0).cells.element(boundBy: 5)
-        let logoutAlert = app.alerts.element(boundBy: 0)
-
-        // The order of cancel and log out in the alert varies by language
-        // There is no way to set accessibility identifers on them, so we must try both
-        logoutButton.tap()
-        logoutAlert.buttons.element(boundBy: 1).tap()
-
-        if !loginButton.waitForExistence(timeout: 3.0) {
-            // Still not logged out, try the other button
-            logoutButton.tap()
-            logoutAlert.buttons.buttons.element(boundBy: 0).tap()
-        }
-
-        waitForElementToExist(element: loginButton)
-    }
-
     func testThatScreenshotGenerationCompiles() {
         XCTAssertTrue(true, "Compilation Succeeded")
+    }
+
+    func testScrollToTop() {
+        let app = XCUIApplication()
+        debugPrint(app.tables.count)
     }
 
     func testGenerateScreenshots() {
         let app = XCUIApplication()
 
-        // Switch to the correct site
-        app.navigationBars.firstMatch.buttons.firstMatch.tap()
-        app.tables.cells["infocusphotographers.com"].tap()
+        let mySite = MySiteScreen()
+            .switchSite()
+            .switchToSite(withTitle: "infocusphotographers.com")
 
-        // Get My Site Screenshot
-        let blogDetailsTable = app.tables["Blog Details Table"]
-        XCTAssert(blogDetailsTable.exists, "My site view not visibile")
-        // Select blog posts if on an iPad screen
-        if isIpad {
-            blogDetailsTable.cells["Blog Post Row"].tap()
-            waitForElementToExist(element: app.tables["PostsTable"])
-            sleep(imagesWaitTime) // Wait for post images to load
-        }
+        let postList = mySite
+            .gotoPostsScreen()
+            .showOnly(.drafts)
 
-        // Get Editor Screenshot
-        blogDetailsTable.cells["Blog Post Row"].tap() // tap Blog Posts
-        waitForElementToExist(element: app.tables["PostsTable"])
-
-        // Switch the filter to drafts
-        app.buttons["drafts"].tap()
-
-        // Get a screenshot of the post editor
-        screenshotGutenPost(withSlug: "summer-band-jam", called: "1-PostEditor")
+        let firstPostEditorScreenshot = postList.selectPost(withSlug: "summer-band-jam")
+        snapshot("1-PostEditor")
+        firstPostEditorScreenshot.close()
 
         // Get a screenshot of the drafts feature
-        screenshotAztecPost(withSlug: "ideas", called: "5-DraftEditor")
+        let secondPostEditorScreenshot = postList.selectPost(withSlug: "ideas")
+        snapshot("5-DraftEditor")
+        secondPostEditorScreenshot.close()
 
         // Get a screenshot of the full-screen editor
         if isIpad {
-            screenshotAztecPost(withSlug: "now-booking-summer-sessions", called: "6-No-Keyboard-Editor")
+            let ipadScreenshot = postList.selectPost(withSlug:  "now-booking-summer-sessions")
+            snapshot("6-No-Keyboard-Editor")
+            ipadScreenshot.close()
         }
 
-        // Tap the back button if on an iPhone screen
-        if isIPhone {
-            app.navigationBars.element(boundBy: 0).buttons.element(boundBy: 0).tap() // back button
+        if !isIpad {
+            postList.pop()
         }
 
-        blogDetailsTable.cells["Media Row"].tap() // Tap Media
+        mySite.gotoMediaScreen()
         sleep(imagesWaitTime) // wait for post images to load
-
         snapshot("4-Media")
 
-        // Tap the back button if on an iPhone screen
-        if isIPhone {
-            app.navigationBars.element(boundBy: 0).buttons.element(boundBy: 0).tap() // back button
+        if !isIpad {
+            postList.pop()
         }
-
         // Get Stats screenshot
-        blogDetailsTable.cells["Stats Row"].tap() // tap Stats
-
-        if app.buttons["dismiss-customize-insights-cell"].exists {
-            app.buttons["dismiss-customize-insights-cell"].tap()
-        }
-
-        app.buttons["years"].tap()
-
-//        app.segmentedControls.element(boundBy: 0).buttons.element(boundBy: 1).tap() // tap Days
+        let statsScreen = mySite.gotoStatsScreen()
+        statsScreen.dismissCustomizeInsightsNotice()
+            .switchTo(mode: .years)
 
         // This line is for stats v2
         // app.buttons["insights"].tap()
@@ -184,62 +106,5 @@ class WordPressScreenshotGeneration: XCTestCase {
         }
 
         snapshot("3-Notifications")
-    }
-
-    private func screenshotAztecPost(withSlug slug: String, called screenshotName: String, withKeyboard: Bool = false) {
-
-        let app = XCUIApplication()
-
-        tapStatusBarToScrollToTop()
-        let cell = app.tables.cells[slug]
-        waitForElementToExist(element: cell)
-
-        scrollElementIntoView(element: cell, within: app.tables["PostsTable"])
-        cell.tap()
-
-        let editorNavigationBar = app.navigationBars["Azctec Editor Navigation Bar"]
-        waitForElementToExist(element: editorNavigationBar)
-
-        if !withKeyboard {
-            app.textViews["aztec-editor-title"].tap(withNumberOfTaps: 1, numberOfTouches: 5)
-        }
-
-        sleep(imagesWaitTime) // wait for post images to load
-        // The title field gets focus automatically
-        snapshot(screenshotName)
-
-        editorNavigationBar.buttons["Close"].tap()
-        // Dismiss Unsaved Changes Alert if it shows up
-        if app.sheets.element(boundBy: 0).exists {
-            // Tap discard
-            app.sheets.element(boundBy: 0).buttons.element(boundBy: 1).tap()
-        }
-    }
-
-    private func screenshotGutenPost(withSlug slug: String, called screenshotName: String, withKeyboard: Bool = false) {
-        let app = XCUIApplication()
-
-        tapStatusBarToScrollToTop()
-        let cell = app.tables.cells[slug]
-        waitForElementToExist(element: cell)
-
-        scrollElementIntoView(element: cell, within: app.tables["PostsTable"])
-        cell.tap()
-
-
-        let editorNavigationBar = app.navigationBars["Gutenberg Editor Navigation Bar"]
-        waitForElementToExist(element: editorNavigationBar)
-
-        //Tap the "OK" button to dismiss the Gutenberg Prompt
-        let notNowButton = app.buttons["defaultAlertButton"]
-        if notNowButton.exists {
-            notNowButton.tap()
-        }
-
-        sleep(imagesWaitTime) // wait for post images to load
-        // The title field gets focus automatically
-        snapshot(screenshotName)
-
-        app.navigationBars.element(boundBy: 0).buttons.element(boundBy: 0).tap() // back button
     }
 }
